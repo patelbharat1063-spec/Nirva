@@ -1,147 +1,317 @@
 
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Nirva Animal Cloud</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nirva - Animal Breeding Cloud</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    body { font: 16px Arial; max-width: 650px; margin: 24px auto; padding: 12px; }
-    input, textarea, button { box-sizing: border-box; width: 100%; padding: 12px; margin: 6px 0; }
-    article { border: 1px solid #ccc; padding: 12px; margin: 10px 0; overflow-wrap: anywhere; }
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 700px;
+      margin: 20px auto;
+      padding: 16px;
+      background: #f3f7f8;
+      color: #17313b;
+    }
+    h2, h3 { color: #176b59; }
+    input, textarea, button {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 12px;
+      margin: 6px 0;
+      font-size: 16px;
+      border-radius: 7px;
+    }
+    input, textarea { border: 1px solid #b9c9ce; }
+    button {
+      background: #176b59;
+      color: white;
+      border: 0;
+      cursor: pointer;
+    }
+    button.delete { background: #b42318; }
+    article {
+      background: white;
+      border: 1px solid #d5e0e3;
+      border-radius: 9px;
+      padding: 12px;
+      margin: 12px 0;
+      overflow-wrap: anywhere;
+    }
+    pre { white-space: pre-wrap; }
+    #status { overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
-  <h2>Nirva — Animal Breeding Cloud</h2>
-  <p id="status">Please sign in.</p>
+
+  <h2>🐄 Nirva Animal Breeding Cloud</h2>
+  <p id="status">Connecting to Supabase...</p>
 
   <section id="login">
-    <input id="email" type="email" placeholder="Your email" autocomplete="username">
-    <input id="password" type="password" placeholder="Password" autocomplete="current-password">
-    <button id="signIn">Sign in</button>
+    <h3>Secure Login</h3>
+    <input id="email" type="email"
+      placeholder="Registered email" autocomplete="username">
+    <input id="password" type="password"
+      placeholder="Password" autocomplete="current-password">
+    <button id="signIn">Sign In</button>
   </section>
 
   <section id="app" hidden>
-    <button id="signOut">Sign out</button>
-    <h3>Save an animal record</h3>
-    <input id="animalId" placeholder="Animal ID e.g. GJ-COW-024">
-    <input id="species" placeholder="Species e.g. Cattle or Buffalo" value="Cattle">
-    <input id="recordType" placeholder="Record type" value="Animal">
-    <textarea id="data" rows="6"
-      placeholder='Extra details as JSON, e.g. {"farmer":"Bharat","breed":"Gir"}'>{}</textarea>
-    <button id="save">Save new record</button>
-    <button id="refresh">Refresh records</button>
+    <button id="signOut">Sign Out</button>
+
+    <h3>Animal Record</h3>
+    <input id="animalId" placeholder="Animal ID">
+    <input id="species" value="Cattle"
+      placeholder="Cattle or Buffalo">
+    <input id="recordType" value="Animal"
+      placeholder="Animal / Breeding / Sonography">
+    <textarea id="data" rows="5"
+      placeholder='Additional details in JSON format'>{"farmer":"","breed":"","milk_litres":0,"pregnancy_status":"","notes":""}</textarea>
+
+    <button id="save">Save New Record</button>
+    <button id="cancelEdit" hidden>Cancel Edit</button>
+
+    <h3>Saved Cloud Records</h3>
+    <button id="refresh">Refresh Records</button>
     <div id="records"></div>
   </section>
 
 <script>
-const SUPABASE_URL = "PASTE_YOUR_PROJECT_URL";
-const SUPABASE_KEY = "PASTE_YOUR_PUBLISHABLE_KEY";
+"use strict";
 
-const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const SUPABASE_URL =
+  "https://geqqdroiybkaucpuajfo.supabase.co";
+
+const SUPABASE_KEY =
+  "sb_publishable_OfvIta_9u1d37UXiDyPHmw_xrtBSDvC";
+
+const db = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+
 const $ = id => document.getElementById(id);
-const status = message => $("status").textContent = message;
+let editingId = null;
+
+function status(message) {
+  $("status").textContent = message;
+}
+
+function setLoggedIn(signedIn) {
+  $("login").hidden = signedIn;
+  $("app").hidden = !signedIn;
+}
+
+function clearForm() {
+  editingId = null;
+  $("animalId").value = "";
+  $("species").value = "Cattle";
+  $("recordType").value = "Animal";
+  $("data").value =
+    '{"farmer":"","breed":"","milk_litres":0,"pregnancy_status":"","notes":""}';
+  $("save").textContent = "Save New Record";
+  $("cancelEdit").hidden = true;
+}
+
+async function signIn() {
+  const email = $("email").value.trim();
+  const password = $("password").value;
+
+  if (!email || !password) {
+    status("Enter your registered email and password.");
+    return;
+  }
+
+  const { error } = await db.auth.signInWithPassword({
+    email, password
+  });
+
+  if (error) {
+    status("Login failed: " + error.message);
+    return;
+  }
+
+  $("password").value = "";
+  status("Login successful.");
+  await showSession();
+}
 
 async function showSession() {
   const { data, error } = await db.auth.getSession();
-  if (error) status(error.message);
+
+  if (error) {
+    status("Session error: " + error.message);
+    return;
+  }
+
   const signedIn = !!data.session;
-  $("login").hidden = signedIn;
-  $("app").hidden = !signedIn;
+  setLoggedIn(signedIn);
+
   if (signedIn) await loadRecords();
 }
 
-$("signIn").onclick = async () => {
-  const { error } = await db.auth.signInWithPassword({
-    email: $("email").value.trim(),
-    password: $("password").value
-  });
-  if (error) return status(error.message);
-  status("Signed in.");
-  await showSession();
-};
-
-$("signOut").onclick = async () => {
+async function signOut() {
   const { error } = await db.auth.signOut();
-  if (error) status(error.message);
-  $("records").replaceChildren();
-  await showSession();
-};
 
-async function loadRecords() {
-  const { data, error } = await db.from("animal_records")
-    .select("*").order("created_at", { ascending: false });
-
-  if (error) return status("Load failed: " + error.message);
+  if (error) {
+    status("Sign-out failed: " + error.message);
+    return;
+  }
 
   $("records").replaceChildren();
-  data.forEach(record => {
-    const card = document.createElement("article");
-    const details = document.createElement("pre");
-    details.textContent = JSON.stringify(record.data, null, 2);
-    const heading = document.createElement("strong");
-    heading.textContent = record.animal_id + " — " + record.species;
-    const edit = document.createElement("button");
-    edit.textContent = "Edit JSON details";
-    edit.onclick = async () => {
-      const input = prompt("Edit JSON details", JSON.stringify(record.data));
-      if (input === null) return;
-      try {
-        const parsed = JSON.parse(input);
-        const result = await updateAnimalRecord(record.id, { data: parsed });
-        if (result.error) return status(result.error.message);
-        await loadRecords();
-      } catch (e) {
-        status("Invalid JSON: " + e.message);
-      }
-    };
-    const del = document.createElement("button");
-    del.textContent = "Delete record";
-    del.onclick = async () => {
-      if (!confirm("Permanently delete " + record.animal_id + "?")) return;
-      const { error } = await db.from("animal_records")
-        .delete().eq("id", record.id);
-      if (error) return status(error.message);
-      await loadRecords();
-    };
-    card.append(heading, details, edit, del);
-    $("records").append(card);
-  });
-  status("Loaded " + data.length + " record(s).");
+  clearForm();
+  setLoggedIn(false);
+  status("Signed out.");
 }
 
-async function updateAnimalRecord(id, changes) {
-  return await db.from("animal_records").update({
-    ...changes,
-    updated_at: new Date().toISOString()
-  }).eq("id", id).select().single();
-}
-
-$("save").onclick = async () => {
+async function saveRecord() {
   const animalId = $("animalId").value.trim();
-  if (!animalId) return status("Enter an Animal ID.");
-  let details;
-  try { details = JSON.parse($("data").value || "{}"); }
-  catch { return status("Extra details must be valid JSON."); }
 
-  const { error } = await db.from("animal_records").insert({
+  if (!animalId) {
+    status("Enter an Animal ID.");
+    return;
+  }
+
+  let details;
+  try {
+    details = JSON.parse($("data").value || "{}");
+
+    if (details === null || Array.isArray(details) ||
+        typeof details !== "object") {
+      throw new Error("Details must be a JSON object.");
+    }
+  } catch (error) {
+    status("Invalid JSON: " + error.message);
+    return;
+  }
+
+  const record = {
     animal_id: animalId,
     species: $("species").value.trim() || "Cattle",
     record_type: $("recordType").value.trim() || "Animal",
-    data: details
-  });
-  if (error) return status("Save failed: " + error.message);
-  status("Record saved to cloud.");
-  await loadRecords();
-};
+    data: details,
+    updated_at: new Date().toISOString()
+  };
 
-$("refresh").onclick = loadRecords;
-db.auth.onAuthStateChange((_event, session) => {
-  $("login").hidden = !!session;
-  $("app").hidden = !session;
-  if (session) setTimeout(() => loadRecords(), 0);
+  let result;
+
+  if (editingId) {
+    result = await db.from("animal_records")
+      .update(record)
+      .eq("id", editingId)
+      .select()
+      .single();
+  } else {
+    result = await db.from("animal_records")
+      .insert(record)
+      .select()
+      .single();
+  }
+
+  if (result.error) {
+    status("Save failed: " + result.error.message);
+    return;
+  }
+
+  status(editingId
+    ? "Record updated in cloud."
+    : "New record saved to cloud.");
+
+  clearForm();
+  await loadRecords();
+}
+
+function editRecord(record) {
+  editingId = record.id;
+  $("animalId").value = record.animal_id;
+  $("species").value = record.species;
+  $("recordType").value = record.record_type;
+  $("data").value = JSON.stringify(record.data, null, 2);
+  $("save").textContent = "Update Record";
+  $("cancelEdit").hidden = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function deleteRecord(record) {
+  if (!confirm("Permanently delete " + record.animal_id + "?")) {
+    return;
+  }
+
+  const { error } = await db.from("animal_records")
+    .delete()
+    .eq("id", record.id);
+
+  if (error) {
+    status("Delete failed: " + error.message);
+    return;
+  }
+
+  status("Record deleted.");
+  await loadRecords();
+}
+
+async function loadRecords() {
+  const { data, error } = await db.from("animal_records")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    status("Could not load records: " + error.message);
+    return;
+  }
+
+  const container = $("records");
+  container.replaceChildren();
+
+  if (!data.length) {
+    container.textContent = "No animal records saved yet.";
+  }
+
+  data.forEach(record => {
+    const card = document.createElement("article");
+    const title = document.createElement("h3");
+    const info = document.createElement("p");
+    const details = document.createElement("pre");
+    const edit = document.createElement("button");
+    const del = document.createElement("button");
+
+    title.textContent = record.animal_id;
+    info.textContent =
+      record.species + " | " + record.record_type;
+    details.textContent =
+      JSON.stringify(record.data, null, 2);
+
+    edit.textContent = "Edit Record";
+    edit.onclick = () => editRecord(record);
+
+    del.textContent = "Delete Record";
+    del.className = "delete";
+    del.onclick = () => deleteRecord(record);
+
+    card.append(title, info, details, edit, del);
+    container.append(card);
+  });
+
+  status("Loaded " + data.length + " cloud record(s).");
+}
+
+$("signIn").addEventListener("click", signIn);
+$("signOut").addEventListener("click", signOut);
+$("save").addEventListener("click", saveRecord);
+$("refresh").addEventListener("click", loadRecords);
+$("cancelEdit").addEventListener("click", clearForm);
+
+db.auth.onAuthStateChange((event, session) => {
+  setLoggedIn(!!session);
+  if (session) {
+    setTimeout(() => loadRecords(), 0);
+  } else {
+    $("records").replaceChildren();
+  }
 });
+
 showSession();
 </script>
 </body>
