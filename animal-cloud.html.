@@ -1,0 +1,148 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nirva Animal Cloud</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { font: 16px Arial; max-width: 650px; margin: 24px auto; padding: 12px; }
+    input, textarea, button { box-sizing: border-box; width: 100%; padding: 12px; margin: 6px 0; }
+    article { border: 1px solid #ccc; padding: 12px; margin: 10px 0; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h2>Nirva — Animal Breeding Cloud</h2>
+  <p id="status">Please sign in.</p>
+
+  <section id="login">
+    <input id="email" type="email" placeholder="Your email" autocomplete="username">
+    <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="signIn">Sign in</button>
+  </section>
+
+  <section id="app" hidden>
+    <button id="signOut">Sign out</button>
+    <h3>Save an animal record</h3>
+    <input id="animalId" placeholder="Animal ID e.g. GJ-COW-024">
+    <input id="species" placeholder="Species e.g. Cattle or Buffalo" value="Cattle">
+    <input id="recordType" placeholder="Record type" value="Animal">
+    <textarea id="data" rows="6"
+      placeholder='Extra details as JSON, e.g. {"farmer":"Bharat","breed":"Gir"}'>{}</textarea>
+    <button id="save">Save new record</button>
+    <button id="refresh">Refresh records</button>
+    <div id="records"></div>
+  </section>
+
+<script>
+const SUPABASE_URL = "PASTE_YOUR_PROJECT_URL";
+const SUPABASE_KEY = "PASTE_YOUR_PUBLISHABLE_KEY";
+
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+const status = message => $("status").textContent = message;
+
+async function showSession() {
+  const { data, error } = await db.auth.getSession();
+  if (error) status(error.message);
+  const signedIn = !!data.session;
+  $("login").hidden = signedIn;
+  $("app").hidden = !signedIn;
+  if (signedIn) await loadRecords();
+}
+
+$("signIn").onclick = async () => {
+  const { error } = await db.auth.signInWithPassword({
+    email: $("email").value.trim(),
+    password: $("password").value
+  });
+  if (error) return status(error.message);
+  status("Signed in.");
+  await showSession();
+};
+
+$("signOut").onclick = async () => {
+  const { error } = await db.auth.signOut();
+  if (error) status(error.message);
+  $("records").replaceChildren();
+  await showSession();
+};
+
+async function loadRecords() {
+  const { data, error } = await db.from("animal_records")
+    .select("*").order("created_at", { ascending: false });
+
+  if (error) return status("Load failed: " + error.message);
+
+  $("records").replaceChildren();
+  data.forEach(record => {
+    const card = document.createElement("article");
+    const details = document.createElement("pre");
+    details.textContent = JSON.stringify(record.data, null, 2);
+    const heading = document.createElement("strong");
+    heading.textContent = record.animal_id + " — " + record.species;
+    const edit = document.createElement("button");
+    edit.textContent = "Edit JSON details";
+    edit.onclick = async () => {
+      const input = prompt("Edit JSON details", JSON.stringify(record.data));
+      if (input === null) return;
+      try {
+        const parsed = JSON.parse(input);
+        const result = await updateAnimalRecord(record.id, { data: parsed });
+        if (result.error) return status(result.error.message);
+        await loadRecords();
+      } catch (e) {
+        status("Invalid JSON: " + e.message);
+      }
+    };
+    const del = document.createElement("button");
+    del.textContent = "Delete record";
+    del.onclick = async () => {
+      if (!confirm("Permanently delete " + record.animal_id + "?")) return;
+      const { error } = await db.from("animal_records")
+        .delete().eq("id", record.id);
+      if (error) return status(error.message);
+      await loadRecords();
+    };
+    card.append(heading, details, edit, del);
+    $("records").append(card);
+  });
+  status("Loaded " + data.length + " record(s).");
+}
+
+async function updateAnimalRecord(id, changes) {
+  return await db.from("animal_records").update({
+    ...changes,
+    updated_at: new Date().toISOString()
+  }).eq("id", id).select().single();
+}
+
+$("save").onclick = async () => {
+  const animalId = $("animalId").value.trim();
+  if (!animalId) return status("Enter an Animal ID.");
+  let details;
+  try { details = JSON.parse($("data").value || "{}"); }
+  catch { return status("Extra details must be valid JSON."); }
+
+  const { error } = await db.from("animal_records").insert({
+    animal_id: animalId,
+    species: $("species").value.trim() || "Cattle",
+    record_type: $("recordType").value.trim() || "Animal",
+    data: details
+  });
+  if (error) return status("Save failed: " + error.message);
+  status("Record saved to cloud.");
+  await loadRecords();
+};
+
+$("refresh").onclick = loadRecords;
+db.auth.onAuthStateChange((_event, session) => {
+  $("login").hidden = !!session;
+  $("app").hidden = !session;
+  if (session) setTimeout(() => loadRecords(), 0);
+});
+showSession();
+</script>
+</body>
+</html>
